@@ -2,3 +2,6 @@ boto3==1.17.103
 web3==5.23.0
 asn1tools==0.158.0
 eth-account==0.5.9
+py-solc-x==1.1.1
+ethereum-kms-signer==0.1.5
+mypy-boto3-kms==1.25.0

@@ -7,13 +7,17 @@ import sys
 
 import asn1tools
 import boto3
+from ethereum_kms_signer import sign_transaction
 from eth_account import Account
 from eth_account._utils.signing import (
     encode_transaction, serializable_unsigned_transaction_from_dict)
-from web3.auto import w3
+#from web3.auto import w3
+from web3 import Web3, HTTPProvider
+from web3.contract import ConciseContract
+provider = os.getenv('ETH_PROVIDER')
+w3 = Web3(HTTPProvider(provider))
 
 session = boto3.session.Session()
-
 handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
 handler.setFormatter(formatter)
@@ -120,7 +124,8 @@ def find_eth_signature(params: EthKmsParams, plaintext: bytes) -> dict:
     signature_schema = asn1tools.compile_string(SIGNATURE_ASN)
 
     signature = sign_kms(params.get_kms_key_id(), plaintext)
-
+    print("KMS signature ↓↓↓↓↓↓↓:")
+    print(signature)
     # https://tools.ietf.org/html/rfc3279#section-2.2.3
     signature_decoded = signature_schema.decode('Ecdsa-Sig-Value', signature['Signature'])
     s = signature_decoded['s']
@@ -150,11 +155,28 @@ def get_recovery_id(msg_hash, r, s, eth_checksum_addr, chainid) -> dict:
     return {}
 
 
-def get_tx_params(dst_address: str, amount: int, nonce: int,
+def get_tx_params(dst_address: str, amount: int, eth_addr: str,
                   chainid: int, type: int, max_fee_per_gas: int, max_priority_fee_per_gas: int) -> dict:
+    
+    nonce = w3.eth.getTransactionCount(eth_addr)
     transaction = {
         'nonce': nonce,
         'to': dst_address,
+        'value': w3.toWei(amount, 'ether'),
+        'data': '0x00',
+        'gas': 160000,
+        'maxFeePerGas': max_fee_per_gas,
+        'maxPriorityFeePerGas': max_priority_fee_per_gas,
+        'type': type,
+        'chainId': chainid,
+    }
+    return transaction
+
+def get_contract_params(amount: int, nonce: int,
+                  chainid: int, type: int, 
+                  max_fee_per_gas: int, max_priority_fee_per_gas: int) -> dict:
+    transaction = {
+        'nonce': nonce,
         'value': w3.toWei(amount, 'ether'),
         'data': '0x00',
         'gas': 160000,
@@ -171,18 +193,67 @@ def assemble_tx(tx_params: dict, params: EthKmsParams, eth_checksum_addr: str, c
     tx_unsigned = serializable_unsigned_transaction_from_dict(transaction_dict=tx_params)
     tx_hash = tx_unsigned.hash()
 
-    tx_sig = find_eth_signature(params=params,
-                                plaintext=tx_hash)
+    #tx_sig : KMSで作成したデジタル署名(以下、サンプル値)
+    # {
+    # 'r': 82180641782937496404261432830707280015483436365446386942006053533949364479954, 
+    # 's': 40476803027594769764469363529134882252271234965148363487394590580287345051392
+    # }
 
+    tx_sig = find_eth_signature(params=params,plaintext=tx_hash)
     tx_eth_recovered_pub_addr = get_recovery_id(msg_hash=tx_hash,
                                                 r=tx_sig['r'],
                                                 s=tx_sig['s'],
                                                 eth_checksum_addr=eth_checksum_addr,
                                                 chainid=chainid)
+    tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
+                                    vrs=(tx_eth_recovered_pub_addr['y_parity'], 
+                                    tx_sig['r'], 
+                                    tx_sig['s'])
+                                 )
 
+    #print('tx_encoded is ↓↓↓↓↓↓↓↓:')
+    #print(tx_encoded)
+    tx_params['data'] = tx_encoded
+
+    # Signing the transaction with KMS key
+    print('params->kms id is ↓↓↓↓↓↓↓↓:')
+    print(params.get_kms_key_id())
+    tx_singed = sign_transaction(tx_params, params.get_kms_key_id())
+
+    # send transaction
+    tx_hash = w3.eth.sendRawTransaction(tx_singed.rawTransaction)
+    print('conplete tx information!!!!!')
+    #print(tx_hash)
+    tx_encoded_hex = w3.toHex(tx_encoded)
+    tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
+    print('translate tx information!!!!!')
+    return tx_hash, tx_hash
+
+def assemble_contract(contract_json: dict, contract_addr: str, constract_func: str,
+                        tx_params: dict, params: EthKmsParams, constract_params: dict,
+                        eth_checksum_addr: str, chainid: int) -> (bytes, bytes):
+    abi = contract_json['abi']
+    #bytecode = contract_json['bytecode']
+    #contract = w3.eth.contract(address=contract_attr_checked,abi=abi,bytecode=bytecode)
+    contract_attr_checked = Web3.toChecksumAddress(contract_addr)
+    contract_instance = w3.eth.contract(abi=abi, address=contract_attr_checked)
+
+    # assemble function in constract
+    constract_func_checked = contract_instance.functions[constract_func](constract_params)
+    tx_unsigned = constract_func_checked.buildTransaction(
+        {'nonce': w3.eth.getTransactionCount(eth_checksum_addr)}
+    )
+    tx_hash = tx_unsigned.hash()
+    # KMSに格納された秘密鍵を使用してデジタル署名
+    tx_sig = find_eth_signature(params=params,plaintext=tx_hash)
+    tx_eth_recovered_pub_addr = get_recovery_id(msg_hash=tx_hash,
+                                                r=tx_sig['r'],
+                                                s=tx_sig['s'],
+                                                eth_checksum_addr=eth_checksum_addr,
+                                                chainid=chainid)
     tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
                                     vrs=(tx_eth_recovered_pub_addr['y_parity'], tx_sig['r'], tx_sig['s']))
-
+    
     tx_encoded_hex = w3.toHex(tx_encoded)
     tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
 

@@ -50,7 +50,9 @@ class EthLambda(core.Construct):
 
 class AwsKmsLambdaEthereumStack(core.Stack):
 
-    def __init__(self, scope: core.Construct, construct_id: str, eth_network: str = 'rinkeby', **kwargs) -> None:
+    def __init__(self, scope: core.Construct, construct_id: str, 
+                eth_network: str = 'goerli', eth_provider: str = 'https://eth-goerli.g.alchemy.com/v2/tiZbH-rBHm6s515n7IWqKSXc3ER88Cxs',
+                 **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         cmk = aws_kms.Key(self, "eth-cmk-identity",
@@ -61,10 +63,12 @@ class AwsKmsLambdaEthereumStack(core.Stack):
 
         eth_client = EthLambda(self, "eth-kms-client",
                                dir="aws_kms_lambda_ethereum/_lambda/functions/eth_client",
-                               env={"LOG_LEVEL": "DEBUG",
+                               env={
+                                    "LOG_LEVEL": "DEBUG",
                                     "KMS_KEY_ID": cmk.key_id,
-                                    "ETH_NETWORK": eth_network
-                                    }
+                                    "ETH_NETWORK": eth_network,
+                                    "ETH_PROVIDER": eth_provider
+                                }
                                )
 
         cmk.grant(eth_client.lf, 'kms:GetPublicKey')
@@ -74,8 +78,9 @@ class AwsKmsLambdaEthereumStack(core.Stack):
                                        dir="aws_kms_lambda_ethereum/_lambda/functions/eth_client_eip1559",
                                        env={"LOG_LEVEL": "DEBUG",
                                             "KMS_KEY_ID": cmk.key_id,
-                                            "ETH_NETWORK": eth_network
-                                            }
+                                            "ETH_NETWORK": eth_network,
+                                            "ETH_PROVIDER": eth_provider
+                                        }
                                        )
 
         cmk.grant(eth_client_eip1559.lf, 'kms:GetPublicKey')

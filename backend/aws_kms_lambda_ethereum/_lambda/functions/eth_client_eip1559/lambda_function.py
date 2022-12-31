@@ -5,6 +5,7 @@ import logging
 import os
 
 from lambda_helper import (assemble_tx,
+                           assemble_contract,
                            get_params,
                            get_tx_params,
                            calc_eth_address,
@@ -17,7 +18,11 @@ handler = logging.StreamHandler()
 _logger = logging.getLogger()
 _logger.setLevel(LOG_LEVEL)
 
-
+'''
+Lambda関数実行時の引数によって、実行する処理の内容を変える
+- status -> 所定のKMS IDの秘密鍵が持つウォレットアドレスを返す
+- send -> 所定のKMS IDの秘密鍵を使用して、送金トランザクションを実行する
+'''
 def lambda_handler(event, context):
     _logger.debug("incoming event: {}".format(event))
 
@@ -38,7 +43,7 @@ def lambda_handler(event, context):
 
         return {'eth_checksum_address': eth_checksum_address}
 
-
+    # 送金トランザクション ※引数のイメージは下記
     # {"operation": "send",
     #  "amount": 123,
     #  "dst_address": "0x...",
@@ -46,36 +51,30 @@ def lambda_handler(event, context):
     elif operation == 'sign':
 
         if not (event.get('dst_address') and event.get('amount', -1) >= 0 and event.get('nonce', -1) >= 0):
-            return {'operation': 'sign',
-                    'error': 'missing parameter - sign requires amount, dst_address and nonce to be specified'}
+            return {
+                'operation': 'sign',
+                'error': 'missing parameter - sign requires amount, dst_address and nonce to be specified'
+            }
 
-        # get key_id from environment varaible
+        # Set Params from environment varaible
         key_id = os.getenv('KMS_KEY_ID')
 
-        # get destination address from send request
+        # Set Params from send request
         dst_address = event.get('dst_address')
-
-        # get amount from send request
         amount = event.get('amount')
-
-        nonce = event.get('nonce')
-
-        # optional params
         chainid = event.get('chainid')
         type = event.get('type')
         max_fee_per_gas = event.get('max_fee_per_gas')
         max_priority_fee_per_gas = event.get('max_priority_fee_per_gas')
 
-        # download public key from KMS
+        # download public key from KMS & calculate the Ethereum public address
         pub_key = get_kms_public_key(key_id)
-
-        # calculate the Ethereum public address from public key
         eth_checksum_addr = calc_eth_address(pub_key)
 
         # collect rawd parameters for Ethereum transaction
         tx_params = get_tx_params(dst_address=dst_address,
                                   amount=amount,
-                                  nonce=nonce,
+                                  eth_addr=eth_checksum_addr,
                                   chainid=chainid,
                                   type=type,
                                   max_fee_per_gas=max_fee_per_gas,
@@ -87,5 +86,57 @@ def lambda_handler(event, context):
                                                                 eth_checksum_addr=eth_checksum_addr,
                                                                 chainid=chainid)
 
-        return {"signed_tx_hash": raw_tx_signed_hash,
-                "signed_tx_payload": raw_tx_signed_payload}
+        return {
+            'operation': 'sign',
+            "signed_tx_hash": raw_tx_signed_hash,
+            "signed_tx_payload": raw_tx_signed_payload
+        }
+
+    # ToDo：スマートコントラクトの実行
+    elif operation == 'contract':
+        if not (event.get('abi', -1) >= 0 and event.get('nonce', -1) >= 0):
+            return {
+                'operation': 'contract',
+                'error': 'missing parameter - contract requires abi and nonce to be specified'
+            }
+        
+        # Set Params from environment varaible
+        key_id = os.getenv('KMS_KEY_ID')
+
+        # Set Params from send request
+        dst_address = event.get('dst_address')
+        nonce = event.get('nonce')
+        chainid = event.get('chainid')
+        type = event.get('type')
+        max_fee_per_gas = event.get('max_fee_per_gas')
+        max_priority_fee_per_gas = event.get('max_priority_fee_per_gas')
+
+        # download public key from KMS & calculate the Ethereum public address
+        pub_key = get_kms_public_key(key_id)
+        eth_checksum_addr = calc_eth_address(pub_key)
+
+        # collect rawd parameters for Ethereum transaction
+        tx_params = get_tx_params(dst_address=dst_address,
+                                  nonce=nonce,
+                                  chainid=chainid,
+                                  type=type,
+                                  max_fee_per_gas=max_fee_per_gas,
+                                  max_priority_fee_per_gas=max_priority_fee_per_gas)
+
+        # assemble Ethereum transaction and sign it offline
+        tx_hash, tx_hash_hex = assemble_contract(tx_params=tx_params,
+                                                params=params,
+                                                eth_checksum_addr=eth_checksum_addr,
+                                                chainid=chainid)
+
+        return {
+            'operation': 'contract',
+            "signed_tx_hash": tx_hash,
+            "signed_tx_hash_hex": tx_hash_hex
+        }
+
+    # ToDO：BlockcertsによるVC発行
+    elif operation == 'issuer':
+        return {
+            "message": "Hello, World!!"
+        }
