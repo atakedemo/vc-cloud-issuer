@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Web App Resources for Hosting Config Files (S3, CloudFront)'
+
+Parameters:
+  AppName:
+    Type: String
+    Default: Web3Core
+    
+  Environment:
+    Type: String
+    Default: Demo
+
+  S3BucketName:
+    Type: String
+    Default: webapp
+  
+  CertificateCdnArn:
+    Type: String
+    Description: ACM Certificae Arn in us-east-1 (arn:aws:acm:us-east-1:~)
+    Default: arn:aws:acm:us-east-1:594175341170:certificate/421981dd-b0ce-4f7b-9596-d5d2219895b2
+  
+  HostedName:
+    Type: String
+    Default: web3core.4attraem.com
+
+  #Parameter for Route53
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hostzone Id of Custom Domain(ex:Z0912345678ABCDEFG)
+    Default: Z399NI29YV08IV
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: web3-core
+      AccessControl: Private
+      Tags:
+        - Key: 'Project'
+          Value: !Ref AppName
+        - Key: Name
+          Value: !Sub ${AppName}-S3Bucket
+        - Key: Environment
+          Value: !Ref Environment
+
+  S3BucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          Action:
+          #  - "s3:PutObject"
+            - "s3:GetObject"
+            - "s3:GetObjectVersion"
+          #  - "s3:DeleteObjectVersion"
+          #  - "s3:DeleteObject"
+          Effect: "Allow"
+          Resource: !Sub "arn:aws:s3:::web3-core/*"
+          Principal: "*"
+
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "CloudFront OAI for Static Web Site"
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateCdnArn
+          MinimumProtocolVersion: TLSv1.2_2019
+          SslSupportMethod: sni-only
+        Aliases:
+          - !Sub ${HostedName}
+        DefaultCacheBehavior:
+          Compress: true
+          DefaultTTL: 86400
+          ForwardedValues:
+            QueryString: true
+          MaxTTL: 31536000
+          TargetOriginId: 'WebStatic-S3'
+          ViewerProtocolPolicy: 'redirect-to-https'
+          #LambdaFunctionAssociations:
+          #  - EventType: viewer-request
+          #    LambdaFunctionARN: !Ref LambdaFunctionArn
+        Enabled: true
+        HttpVersion: 'http2'
+        DefaultRootObject: 'index.html'
+        IPV6Enabled: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath : /index.html
+        Origins:
+          - DomainName: !Join ["", [!Ref S3Bucket, !Sub ".s3-${AWS::Region}.amazonaws.com"]]
+            Id: 'WebStatic-S3'
+            S3OriginConfig:
+              OriginAccessIdentity:
+                !Join ['', ['origin-access-identity/cloudfront/', !Ref CloudFrontOriginAccessIdentity]]
+        PriceClass: 'PriceClass_All'
+        #WebACLId: !Ref WebAclId
+      Tags:
+        - Key: 'Project'
+          Value: !Ref AppName
+        - Key: Name
+          Value: !Sub ${AppName}-${Environment}-CloudFront-Distribution
+        - Key: Environment
+          Value: !Ref Environment
+
+  RecordSetCloudFront:
+    Type: AWS::Route53::RecordSet
+    Properties: 
+      Type: A
+      AliasTarget: 
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        #Static Value defined by AWS
+        HostedZoneId: 'Z2FDTNDATAQYW2'
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub ${HostedName}
+      Comment: Zone apex alias targeted to CloudFront
+
+Outputs:
+  S3BucketName:
+    Value: !Ref S3Bucket

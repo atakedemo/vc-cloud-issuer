@@ -140,23 +140,23 @@ def find_eth_signature(params: EthKmsParams, plaintext: bytes) -> dict:
 
 
 def get_recovery_id(msg_hash, r, s, eth_checksum_addr, chainid) -> dict:
-    # https://eips.ethereum.org/EIPS/eip-155
-    # calculate v according to EIP155 based on chainid parameter
+    # デジタル署名の vを計算する(EIP155) ※https://eips.ethereum.org/EIPS/eip-155
     # {0,1} + CHAIN_ID * 2 + 35
     v_lower = chainid * 2 + 35
     v_range = [v_lower, v_lower + 1]
-
     for v in v_range:
         recovered_addr = Account.recoverHash(message_hash=msg_hash, vrs=(v, r, s))
-
         if recovered_addr == eth_checksum_addr:
             return {"recovered_addr": recovered_addr, "y_parity": v - v_lower}
-
     return {}
 
-
-def get_tx_params(dst_address: str, amount: int, eth_addr: str,
-                  chainid: int, type: int, max_fee_per_gas: int, max_priority_fee_per_gas: int) -> dict:
+def get_tx_params(dst_address: str, 
+                  amount: int, 
+                  eth_addr: str,
+                  chainid: int, 
+                  type: int, 
+                  max_fee_per_gas: int, 
+                  max_priority_fee_per_gas: int) -> dict:
     
     nonce = w3.eth.getTransactionCount(eth_addr)
     transaction = {
@@ -189,16 +189,15 @@ def get_contract_params(amount: int, nonce: int,
     return transaction
 
 
-def assemble_tx(tx_params: dict, params: EthKmsParams, eth_checksum_addr: str, chainid: int) -> (bytes, bytes):
+def assemble_tx(tx_params: dict, 
+                params: EthKmsParams, 
+                eth_checksum_addr: str, 
+                chainid: int) -> (bytes, bytes):
     tx_unsigned = serializable_unsigned_transaction_from_dict(transaction_dict=tx_params)
     tx_hash = tx_unsigned.hash()
 
-    #tx_sig : KMSで作成したデジタル署名(以下、サンプル値)
-    # {
-    # 'r': 82180641782937496404261432830707280015483436365446386942006053533949364479954, 
-    # 's': 40476803027594769764469363529134882252271234965148363487394590580287345051392
-    # }
-
+    #渡されたtx_paramsではdataが仮の値のため、署名した値を代入する
+    #tx_sig : KMSで作成したデジタル署名のr, s
     tx_sig = find_eth_signature(params=params,plaintext=tx_hash)
     tx_eth_recovered_pub_addr = get_recovery_id(msg_hash=tx_hash,
                                                 r=tx_sig['r'],
@@ -206,35 +205,31 @@ def assemble_tx(tx_params: dict, params: EthKmsParams, eth_checksum_addr: str, c
                                                 eth_checksum_addr=eth_checksum_addr,
                                                 chainid=chainid)
     tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
-                                    vrs=(tx_eth_recovered_pub_addr['y_parity'], 
-                                    tx_sig['r'], 
-                                    tx_sig['s'])
-                                 )
-
-    #print('tx_encoded is ↓↓↓↓↓↓↓↓:')
-    #print(tx_encoded)
+                                    vrs=(
+                                        tx_eth_recovered_pub_addr['y_parity'], 
+                                        tx_sig['r'], 
+                                        tx_sig['s']
+                                    ))
     tx_params['data'] = tx_encoded
 
     # Signing the transaction with KMS key
-    print('params->kms id is ↓↓↓↓↓↓↓↓:')
-    print(params.get_kms_key_id())
     tx_singed = sign_transaction(tx_params, params.get_kms_key_id())
 
     # send transaction
     tx_hash = w3.eth.sendRawTransaction(tx_singed.rawTransaction)
-    print('conplete tx information!!!!!')
-    #print(tx_hash)
     tx_encoded_hex = w3.toHex(tx_encoded)
     tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
     print('translate tx information!!!!!')
     return tx_hash, tx_hash
 
-def assemble_contract(contract_json: dict, contract_addr: str, constract_func: str,
-                        tx_params: dict, params: EthKmsParams, constract_params: dict,
-                        eth_checksum_addr: str, chainid: int) -> (bytes, bytes):
+def assemble_contract(tx_params: dict, 
+                      params: EthKmsParams, 
+                      eth_checksum_addr: str, 
+                      chainid: int, 
+                      contract_json: dict, 
+                      contract_addr: str, 
+                      constract_func: str,) -> (bytes, bytes):
     abi = contract_json['abi']
-    #bytecode = contract_json['bytecode']
-    #contract = w3.eth.contract(address=contract_attr_checked,abi=abi,bytecode=bytecode)
     contract_attr_checked = Web3.toChecksumAddress(contract_addr)
     contract_instance = w3.eth.contract(abi=abi, address=contract_attr_checked)
 
@@ -253,7 +248,12 @@ def assemble_contract(contract_json: dict, contract_addr: str, constract_func: s
                                                 chainid=chainid)
     tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
                                     vrs=(tx_eth_recovered_pub_addr['y_parity'], tx_sig['r'], tx_sig['s']))
-    
+    tx_params['data'] = tx_encoded
+
+    # Signing the transaction with KMS key
+    tx_singed = sign_transaction(tx_params, params.get_kms_key_id())
+
+    tx_hash = w3.eth.sendRawTransaction(tx_singed.rawTransaction)
     tx_encoded_hex = w3.toHex(tx_encoded)
     tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
 
