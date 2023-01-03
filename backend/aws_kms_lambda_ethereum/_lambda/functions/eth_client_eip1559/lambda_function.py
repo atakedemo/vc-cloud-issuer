@@ -9,6 +9,7 @@ from lambda_helper import (assemble_tx,
                            assemble_contract,
                            get_params,
                            get_tx_params,
+                           get_contract_params,
                            calc_eth_address,
                            get_kms_public_key)
 
@@ -95,63 +96,62 @@ def lambda_handler(event, context):
 
     # ToDo：スマートコントラクトの実行
     elif operation == 'contract':
-        if not (event.get('abi', -1) >= 0 and event.get('nonce', -1) >= 0):
+        if not (event.get('max_fee_per_gas', -1) >= 0):
             return {
                 'operation': 'contract',
-                'error': 'missing parameter - contract requires abi and nonce to be specified'
+                'error': 'missing parameter - contract requires max_fee_per_gas to be specified'
             }
         
         s3 = boto3.client('s3')
         
         # Set Params from environment varaible
         key_id = os.getenv('KMS_KEY_ID')
-        bucket_name = 'web3-core'
-        object_key = 'abi/NftLogic.json'
-        response = s3.get_object(Bucket=bucket_name, Key=object_key)
-        body = response['Body'].read()
 
-        return json.loads(body.decode('utf-8'))
-        '''
+        # Get Contract JSON from S3
+        #s3_bucket = 'web3-core'
+        #s3_obj_key = 'abi/Nft.json'
+        s3_bucket = event.get('contract_json_bucket')
+        s3_obj_key = event.get('contract_json_objkey')
+        s3_res = s3.get_object(Bucket=s3_bucket, Key=s3_obj_key)
+        contract_json = json.load(s3_res['Body'])
+
         # Set Params from send request
         dst_address = event.get('dst_address')
         chainid = event.get('chainid')
         type = event.get('type')
+        gas = event.get('gas')
         max_fee_per_gas = event.get('max_fee_per_gas')
         max_priority_fee_per_gas = event.get('max_priority_fee_per_gas')
         contract_addr = event.get('contract_address')
         contract_func = event.get ('contract_function')
+        contract_params = event.get('contract_params')
 
         # download public key from KMS & calculate the Ethereum public address
         pub_key = get_kms_public_key(key_id)
         eth_checksum_addr = calc_eth_address(pub_key)
 
-        # download contract json from S3
-        contract_json = {
-            "abi": "xxxxx"
-        }
-
         # collect rawd parameters for Ethereum transaction
-        tx_params = get_tx_params(dst_address=dst_address,
+        tx_params = get_contract_params(eth_addr=eth_checksum_addr,
                                   chainid=chainid,
                                   type=type,
+                                  gas=gas,
                                   max_fee_per_gas=max_fee_per_gas,
                                   max_priority_fee_per_gas=max_priority_fee_per_gas)
 
         # assemble Ethereum transaction and sign it offline
-        tx_hash, tx_hash_hex = assemble_contract(tx_params=tx_params,
+        tx_hash = assemble_contract(tx_params=tx_params,
                                                  params=params,
                                                  eth_checksum_addr=eth_checksum_addr,
                                                  chainid=chainid,
                                                  contract_json=contract_json,
                                                  contract_addr=contract_addr,
-                                                 contract_func=contract_func)
+                                                 contract_func=contract_func,
+                                                 contract_params=contract_params)
 
         return {
             'operation': 'contract',
-            "signed_tx_hash": tx_hash,
-            "signed_tx_hash_hex": tx_hash_hex
+            "signed_tx_hash": tx_hash
         }
-        '''
 
     # ToDO：BlockcertsによるVC発行
     elif operation == 'issuer':

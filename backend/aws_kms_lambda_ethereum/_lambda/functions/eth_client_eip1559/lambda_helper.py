@@ -155,6 +155,7 @@ def get_tx_params(dst_address: str,
                   eth_addr: str,
                   chainid: int, 
                   type: int, 
+                  gas: int,
                   max_fee_per_gas: int, 
                   max_priority_fee_per_gas: int) -> dict:
     
@@ -164,7 +165,6 @@ def get_tx_params(dst_address: str,
         'to': dst_address,
         'value': w3.toWei(amount, 'ether'),
         'data': '0x00',
-        'gas': 160000,
         'maxFeePerGas': max_fee_per_gas,
         'maxPriorityFeePerGas': max_priority_fee_per_gas,
         'type': type,
@@ -172,14 +172,16 @@ def get_tx_params(dst_address: str,
     }
     return transaction
 
-def get_contract_params(amount: int, nonce: int,
-                  chainid: int, type: int, 
-                  max_fee_per_gas: int, max_priority_fee_per_gas: int) -> dict:
+def get_contract_params(eth_addr: str,
+                        chainid: int, 
+                        type: int, 
+                        gas: int,
+                        max_fee_per_gas: int, 
+                        max_priority_fee_per_gas: int) -> dict:
+    nonce = w3.eth.getTransactionCount(eth_addr)
     transaction = {
         'nonce': nonce,
-        'value': w3.toWei(amount, 'ether'),
-        'data': '0x00',
-        'gas': 160000,
+        'gas': gas,
         'maxFeePerGas': max_fee_per_gas,
         'maxPriorityFeePerGas': max_priority_fee_per_gas,
         'type': type,
@@ -228,16 +230,22 @@ def assemble_contract(tx_params: dict,
                       chainid: int, 
                       contract_json: dict, 
                       contract_addr: str, 
-                      constract_func: str,) -> (bytes, bytes):
+                      contract_func: str,
+                      contract_params: dict) -> (str):
     abi = contract_json['abi']
+    #byte = contract_json['byte']
     contract_attr_checked = Web3.toChecksumAddress(contract_addr)
     contract_instance = w3.eth.contract(abi=abi, address=contract_attr_checked)
 
     # assemble function in constract
-    constract_func_checked = contract_instance.functions[constract_func](constract_params)
-    tx_unsigned = constract_func_checked.buildTransaction(
-        {'nonce': w3.eth.getTransactionCount(eth_checksum_addr)}
-    )
+    print(contract_params)
+    constract_func_checked = contract_instance.functions[contract_func](
+        contract_params["recipient"],
+        contract_params["tokenURI"],
+        contract_params["id"])
+    tx_unsigned = constract_func_checked.buildTransaction(tx_params)
+    
+    '''
     tx_hash = tx_unsigned.hash()
     # KMSに格納された秘密鍵を使用してデジタル署名
     tx_sig = find_eth_signature(params=params,plaintext=tx_hash)
@@ -247,14 +255,20 @@ def assemble_contract(tx_params: dict,
                                                 eth_checksum_addr=eth_checksum_addr,
                                                 chainid=chainid)
     tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
-                                    vrs=(tx_eth_recovered_pub_addr['y_parity'], tx_sig['r'], tx_sig['s']))
+                                    vrs=(
+                                        tx_eth_recovered_pub_addr['y_parity'], 
+                                        tx_sig['r'], 
+                                        tx_sig['s']
+                                    ))
     tx_params['data'] = tx_encoded
 
     # Signing the transaction with KMS key
     tx_singed = sign_transaction(tx_params, params.get_kms_key_id())
+    '''
 
+    tx_singed = sign_transaction(tx_unsigned, params.get_kms_key_id())
     tx_hash = w3.eth.sendRawTransaction(tx_singed.rawTransaction)
-    tx_encoded_hex = w3.toHex(tx_encoded)
-    tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
+    #tx_encoded_hex = w3.toHex(tx_encoded)
+    #tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
 
-    return tx_hash, tx_encoded_hex
+    return tx_hash
