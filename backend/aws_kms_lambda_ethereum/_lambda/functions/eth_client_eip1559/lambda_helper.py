@@ -226,14 +226,11 @@ def assemble_tx(tx_params: dict,
 
 def assemble_contract(tx_params: dict, 
                       params: EthKmsParams, 
-                      eth_checksum_addr: str, 
-                      chainid: int, 
                       contract_json: dict, 
                       contract_addr: str, 
                       contract_func: str,
-                      contract_params: dict) -> (str):
+                      contract_params: dict) -> (bytes):
     abi = contract_json['abi']
-    #byte = contract_json['byte']
     contract_attr_checked = Web3.toChecksumAddress(contract_addr)
     contract_instance = w3.eth.contract(abi=abi, address=contract_attr_checked)
 
@@ -244,31 +241,8 @@ def assemble_contract(tx_params: dict,
         contract_params["tokenURI"],
         contract_params["id"])
     tx_unsigned = constract_func_checked.buildTransaction(tx_params)
-    
-    '''
-    tx_hash = tx_unsigned.hash()
-    # KMSに格納された秘密鍵を使用してデジタル署名
-    tx_sig = find_eth_signature(params=params,plaintext=tx_hash)
-    tx_eth_recovered_pub_addr = get_recovery_id(msg_hash=tx_hash,
-                                                r=tx_sig['r'],
-                                                s=tx_sig['s'],
-                                                eth_checksum_addr=eth_checksum_addr,
-                                                chainid=chainid)
-    tx_encoded = encode_transaction(unsigned_transaction=tx_unsigned,
-                                    vrs=(
-                                        tx_eth_recovered_pub_addr['y_parity'], 
-                                        tx_sig['r'], 
-                                        tx_sig['s']
-                                    ))
-    tx_params['data'] = tx_encoded
-
-    # Signing the transaction with KMS key
-    tx_singed = sign_transaction(tx_params, params.get_kms_key_id())
-    '''
 
     tx_singed = sign_transaction(tx_unsigned, params.get_kms_key_id())
     tx_hash = w3.eth.sendRawTransaction(tx_singed.rawTransaction)
-    #tx_encoded_hex = w3.toHex(tx_encoded)
-    #tx_hash = w3.keccak(hexstr=tx_encoded_hex).hex()
 
     return tx_hash

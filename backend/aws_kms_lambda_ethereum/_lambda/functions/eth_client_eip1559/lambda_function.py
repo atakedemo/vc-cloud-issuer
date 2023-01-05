@@ -50,7 +50,7 @@ def lambda_handler(event, context):
     #  "amount": 123,
     #  "dst_address": "0x...",
     #  "nonce": 0}
-    elif operation == 'sign':
+    elif operation == 'send':
 
         if not (event.get('dst_address') and event.get('amount', -1) >= 0 and event.get('nonce', -1) >= 0):
             return {
@@ -95,11 +95,11 @@ def lambda_handler(event, context):
         }
 
     # ToDo：スマートコントラクトの実行
-    elif operation == 'contract':
+    elif operation == 'nft721':
         if not (event.get('max_fee_per_gas', -1) >= 0):
             return {
-                'operation': 'contract',
-                'error': 'missing parameter - contract requires max_fee_per_gas to be specified'
+                'operation': 'nft721',
+                'error': 'missing parameter - NFT721 requires max_fee_per_gas to be specified'
             }
         
         s3 = boto3.client('s3')
@@ -108,8 +108,6 @@ def lambda_handler(event, context):
         key_id = os.getenv('KMS_KEY_ID')
 
         # Get Contract JSON from S3
-        #s3_bucket = 'web3-core'
-        #s3_obj_key = 'abi/Nft.json'
         s3_bucket = event.get('contract_json_bucket')
         s3_obj_key = event.get('contract_json_objkey')
         s3_res = s3.get_object(Bucket=s3_bucket, Key=s3_obj_key)
@@ -140,16 +138,14 @@ def lambda_handler(event, context):
 
         # assemble Ethereum transaction and sign it offline
         tx_hash = assemble_contract(tx_params=tx_params,
-                                                 params=params,
-                                                 eth_checksum_addr=eth_checksum_addr,
-                                                 chainid=chainid,
-                                                 contract_json=contract_json,
-                                                 contract_addr=contract_addr,
-                                                 contract_func=contract_func,
-                                                 contract_params=contract_params)
+                                    params=params,
+                                    contract_json=contract_json,
+                                    contract_addr=contract_addr,
+                                    contract_func=contract_func,
+                                    contract_params=contract_params)
 
         return {
-            'operation': 'contract',
+            'operation': 'nft721',
             "signed_tx_hash": tx_hash
         }
 
