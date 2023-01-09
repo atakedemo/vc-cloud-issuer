@@ -90,7 +90,8 @@ class AwsKmsLambdaEthereumStack(core.Stack):
                                 dir="aws_kms_lambda_ethereum/_lambda/functions/auth_client",
                                 env={"LOG_LEVEL": "DEBUG",
                                     "ETH_NETWORK": eth_network,
-                                    "ETH_PROVIDER": eth_provider
+                                    "ETH_PROVIDER": eth_provider,
+                                    "KMS_KEY_ID": "XXX"
                                 }
                                 )
         cmk.grant(auth_client.lf, 'kms:GetPublicKey')
