@@ -4,7 +4,8 @@ import "./App.css";
 
 function App() {
   const [currentAccount, setCurrentAccount] = useState(null);
-  const [isVerified, setIsVerified] = useState(false)
+  const [isVerified, setIsVerified] = useState(false);
+  const [jwtToken, setjwtToken] = useState(null);
 
   const checkWalletIsConnected = async () => {
     const { ethereum } = window;
@@ -51,22 +52,29 @@ function App() {
     }
 
     const web3 = new Web3(provider)
-    const [address] = await web3.eth.requestAccounts()
-    const message = 'message'
+    const [tgt_addr] = await web3.eth.requestAccounts()
+
+    const api_url = 'https://1vlevj4eak.execute-api.ap-northeast-1.amazonaws.com/demo/wallet-connect'
+    const message = 'Please Sign This Request for Accsessing to Service'
     const password = ''
-    const signature = await web3.eth.personal.sign(message, address, password)
+    const signature = await web3.eth.personal.sign(message, tgt_addr, password)
     console.log(signature);
-    /*
-    const response = await fetch('/api/verify', {
+    
+    const response = await fetch(api_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=UTF-8',
       },
-      body: JSON.stringify({message, address, signature}),
+      body: JSON.stringify({
+        message, tgt_addr, signature
+      }),
     })
-
+    console.log(response)
     const body = await response.json()
-    */
+    if(body.status=='success') {
+      setIsVerified(true);
+      setjwtToken(body.token)
+    }
   };
 
   const connectWalletButton = () => {
@@ -96,6 +104,9 @@ function App() {
     <div className="main-app">
       <h1>Scrappy Squirrels Tutorial</h1>
       <div>{currentAccount ? signPrivateKey() : connectWalletButton()}</div>
+      <div>
+        <h2>{isVerified ? jwtToken : 'You have not connect wallet yet'}</h2>
+        </div>
     </div>
   );
 }
