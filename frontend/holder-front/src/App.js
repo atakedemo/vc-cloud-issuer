@@ -71,7 +71,7 @@ function App() {
     })
     console.log(response)
     const body = await response.json()
-    if(body.status=='success') {
+    if(body.status==='success') {
       setIsVerified(true);
       setjwtToken(body.token)
     }
