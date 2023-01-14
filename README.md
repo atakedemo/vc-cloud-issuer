@@ -1,1 +1,1 @@
-# vc-cloud-issuer
+# AWSを使用したWeb3サービスのコア機能テンプレート
